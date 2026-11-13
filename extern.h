@@ -25,7 +25,28 @@ struct vmcount {
 	int	up;		/* VMs running */
 };
 
+/*
+ * A system tray protocol, XEmbed or StatusNotifierItem.  The main loop
+ * polls fd(), calls dispatch() when it is readable and update() with the
+ * lamp to light and a description whenever the state is checked.
+ */
+struct tray {
+	int	(*fd)(void);
+	void	(*dispatch)(void);
+	void	(*update)(int, const char *);
+};
+
+/* Colors as 0xrrggbb. */
+extern const unsigned int colorhousing;
+extern const unsigned int colorlit[LIGHT_MAX];
+extern const unsigned int colorunlit[LIGHT_MAX];
+
 __BEGIN_DECLS
+void	 iconrender(unsigned char *, int, int);
+void	 launch(void);
+int	 sni_init(struct tray *);
+void	 vmdescribe(const struct vmcount *, char *, size_t);
 int	 vmlight(const struct vmcount *);
 int	 vmparse(FILE *, struct vmcount *);
+int	 xembed_init(struct tray *);
 __END_DECLS

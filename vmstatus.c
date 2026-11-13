@@ -65,6 +65,17 @@ vmparse(FILE *fp, struct vmcount *vc)
 	return 0;
 }
 
+/* Describe the counts in words, for the tooltip and the window title. */
+void
+vmdescribe(const struct vmcount *vc, char *buf, size_t len)
+{
+	if (vc->total == 0)
+		(void)snprintf(buf, len, "no VMs configured");
+	else
+		(void)snprintf(buf, len, "%d of %d VM%s running", vc->up,
+		    vc->total, vc->total == 1 ? "" : "s");
+}
+
 /*
  * Choose the lamp to light: green when every VM is running, red when none
  * is running or there are none, and yellow in between.

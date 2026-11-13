@@ -1,5 +1,5 @@
 vmdtray
 *.o
 *.d
-regress/t_vmstatus
+regress/t_vmdtray
 obj/

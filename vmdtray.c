@@ -22,66 +22,41 @@
 
 #include <err.h>
 #include <errno.h>
-#include <fcntl.h>
 #include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <time.h>
 #include <unistd.h>
-
-#include <X11/Xlib.h>
-#include <X11/Xutil.h>
 
 #include "extern.h"
 #include "pathnames.h"
 
-#define SYSTEM_TRAY_REQUEST_DOCK	0
-#define XEMBED_MAPPED			(1 << 0)
-
-static const char *lit[LIGHT_MAX] = { "#e53935", "#fdd835", "#43a047" };
-static const char *unlit[LIGHT_MAX] = { "#2a0e0e", "#2a270e", "#0e2410" };
-
-static Display		*dpy;
-static Window		 manager, root, win;
-static GC		 gc;
-static Atom		 managersel, opcode, traysel, xembedinfo;
-static Colormap		 cmap;
 static const char	*console = _PATH_CONSOLE;
-static unsigned long	 alpha, housing, on[LIGHT_MAX], off[LIGHT_MAX];
-static int		 current, height, width;
 
 static int		 vmstatus(char *, size_t);
-static void		 dock(void);
-static void		 draw(void);
-static void		 handle(XEvent *);
-static void		 launch(void);
-static unsigned long	 pixel(const char *);
 static __dead void	 usage(void);
 
 /*
  * vmdtray shows the state of the vmd(8) virtual machines as a traffic
  * light in the system tray: green when every VM is running, yellow when
  * only some are or one is changing state, and red when none is running
- * or vmd(8) cannot be reached.  Clicking it starts the VM manager.
+ * or vmd(8) cannot be reached.  Clicking it starts the VM manager.  It
+ * speaks StatusNotifierItem when the desktop offers it, which also gives
+ * a tooltip, and the XEmbed system tray protocol otherwise.
  */
 int
 main(int argc, char *argv[])
 {
-	XEvent ev;
-	char title[128], traystr[32];
-	XSetWindowAttributes swa;
-	XVisualInfo vi;
-	XClassHint class;
-	long info[2];
+	struct tray tray;
+	char text[128];
 	struct timespec left, next, now;
 	const char *errstr;
 	struct pollfd pfd;
-	Visual *visual;
-	int ch, depth, i, interval, scr, timeout;
+	int ch, interval, lamp, timeout, xflag;
 
 	interval = 5;
-	while ((ch = getopt(argc, argv, "c:i:")) != -1) {
+	xflag = 0;
+	while ((ch = getopt(argc, argv, "c:i:x")) != -1) {
 		switch (ch) {
 		case 'c':
 			console = optarg;
@@ -90,6 +65,9 @@ main(int argc, char *argv[])
 			interval = strtonum(optarg, 1, 3600, &errstr);
 			if (errstr != NULL)
 				errx(1, "interval is %s: %s", errstr, optarg);
+			break;
+		case 'x':
+			xflag = 1;
 			break;
 		default:
 			usage();
@@ -100,70 +78,12 @@ main(int argc, char *argv[])
 	if (argc != 0)
 		usage();
 
-	if ((dpy = XOpenDisplay(NULL)) == NULL)
-		errx(1, "cannot open display");
-	if (fcntl(ConnectionNumber(dpy), F_SETFD, FD_CLOEXEC) == -1)
-		err(1, "fcntl");
-	scr = DefaultScreen(dpy);
-	root = RootWindow(dpy, scr);
-
-	(void)snprintf(traystr, sizeof(traystr), "_NET_SYSTEM_TRAY_S%d", scr);
-	traysel = XInternAtom(dpy, traystr, False);
-	managersel = XInternAtom(dpy, "MANAGER", False);
-	opcode = XInternAtom(dpy, "_NET_SYSTEM_TRAY_OPCODE", False);
-	xembedinfo = XInternAtom(dpy, "_XEMBED_INFO", False);
+	if (xflag || sni_init(&tray) == -1)
+		(void)xembed_init(&tray);
 
 	/*
-	 * With a 32-bit visual the window has an alpha channel and its
-	 * background can be transparent, so the tray shows through around
-	 * the traffic light.  Otherwise borrow the background of the parent.
-	 */
-	if (XMatchVisualInfo(dpy, scr, 32, TrueColor, &vi) != 0) {
-		visual = vi.visual;
-		depth = vi.depth;
-		cmap = XCreateColormap(dpy, root, visual, AllocNone);
-		alpha = 0xffUL << 24;
-	} else {
-		visual = DefaultVisual(dpy, scr);
-		depth = DefaultDepth(dpy, scr);
-		cmap = DefaultColormap(dpy, scr);
-		alpha = 0;
-	}
-
-	housing = pixel("#0c0c0c");
-	for (i = 0; i < LIGHT_MAX; i++) {
-		on[i] = pixel(lit[i]);
-		off[i] = pixel(unlit[i]);
-	}
-
-	width = height = 22;
-	swa.background_pixel = 0;
-	swa.border_pixel = 0;
-	swa.colormap = cmap;
-	win = XCreateWindow(dpy, root, 0, 0, width, height, 0, depth,
-	    InputOutput, visual, CWBackPixel | CWBorderPixel | CWColormap,
-	    &swa);
-	if (alpha == 0)
-		XSetWindowBackgroundPixmap(dpy, win, ParentRelative);
-	XSelectInput(dpy, win, ButtonPressMask | ExposureMask |
-	    StructureNotifyMask);
-	XSelectInput(dpy, root, StructureNotifyMask);
-	gc = XCreateGC(dpy, win, 0, NULL);
-
-	class.res_name = "vmdtray";
-	class.res_class = "Vmdtray";
-	XSetClassHint(dpy, win, &class);
-	XStoreName(dpy, win, "vmd");
-
-	/* XEmbed protocol version 0, and ask to be shown once docked. */
-	info[0] = 0;
-	info[1] = XEMBED_MAPPED;
-	XChangeProperty(dpy, win, xembedinfo, xembedinfo, 32,
-	    PropModeReplace, (unsigned char *)info, 2);
-
-	/*
-	 * From here on only the open display connection, vmctl(8) and the
-	 * VM manager are needed.
+	 * From here on only the open tray connection, vmctl(8) and the VM
+	 * manager are needed.
 	 */
 	if (unveil(_PATH_VMCTL, "x") == -1)
 		err(1, "unveil %s", _PATH_VMCTL);
@@ -172,27 +92,21 @@ main(int argc, char *argv[])
 	if (pledge("stdio proc exec", NULL) == -1)
 		err(1, "pledge");
 
-	dock();
-
 	if (clock_gettime(CLOCK_MONOTONIC, &next) == -1)
 		err(1, "clock_gettime");
-	pfd.fd = ConnectionNumber(dpy);
+	pfd.fd = tray.fd();
 	pfd.events = POLLIN;
 	for (;;) {
 		if (clock_gettime(CLOCK_MONOTONIC, &now) == -1)
 			err(1, "clock_gettime");
 		if (timespeccmp(&now, &next, >=)) {
-			current = vmstatus(title, sizeof(title));
-			XStoreName(dpy, win, title);
-			draw();
+			lamp = vmstatus(text, sizeof(text));
+			tray.update(lamp, text);
 			next = now;
 			next.tv_sec += interval;
 		}
 
-		while (XPending(dpy) > 0) {
-			XNextEvent(dpy, &ev);
-			handle(&ev);
-		}
+		tray.dispatch();
 
 		if (clock_gettime(CLOCK_MONOTONIC, &now) == -1)
 			err(1, "clock_gettime");
@@ -207,10 +121,10 @@ main(int argc, char *argv[])
 
 /*
  * Run "vmctl status" and count the VMs that are running.  Return the lamp
- * to light and describe the state in title.
+ * to light and describe the state in text.
  */
 static int
-vmstatus(char *title, size_t len)
+vmstatus(char *text, size_t len)
 {
 	struct vmcount vc;
 	FILE *fp;
@@ -242,114 +156,18 @@ vmstatus(char *title, size_t len)
 		if (errno != EINTR)
 			err(1, "waitpid");
 	if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
-		(void)snprintf(title, len, "vmd: not available");
+		(void)snprintf(text, len, "vmd not available");
 		return LIGHT_RED;
 	}
-
-	(void)snprintf(title, len, "vmd: %d of %d VMs running", vc.up,
-	    vc.total);
+	vmdescribe(&vc, text, len);
 	return vmlight(&vc);
-}
-
-/*
- * Ask the system tray manager, if there is one, to embed our window.
- * Without a manager, wait for its MANAGER announcement on the root window.
- */
-static void
-dock(void)
-{
-	XEvent ev;
-
-	XGrabServer(dpy);
-	if ((manager = XGetSelectionOwner(dpy, traysel)) != None)
-		XSelectInput(dpy, manager, StructureNotifyMask);
-	XUngrabServer(dpy);
-	if (manager == None) {
-		XFlush(dpy);
-		return;
-	}
-
-	memset(&ev, 0, sizeof(ev));
-	ev.xclient.type = ClientMessage;
-	ev.xclient.window = manager;
-	ev.xclient.message_type = opcode;
-	ev.xclient.format = 32;
-	ev.xclient.data.l[0] = CurrentTime;
-	ev.xclient.data.l[1] = SYSTEM_TRAY_REQUEST_DOCK;
-	ev.xclient.data.l[2] = win;
-	XSendEvent(dpy, manager, False, NoEventMask, &ev);
-	XFlush(dpy);
-}
-
-/*
- * Draw the traffic light: a dark housing with three lamps, of which only
- * the current one is lit.
- */
-static void
-draw(void)
-{
-	int d, gap, i, size, x, y;
-
-	XClearWindow(dpy, win);
-	size = width < height ? width : height;
-	if ((gap = size / 22) < 1)
-		gap = 1;
-	d = (size - 4 * gap) / 3;
-	x = (width - d) / 2;
-	y = (height - (3 * d + 4 * gap)) / 2;
-
-	XSetForeground(dpy, gc, housing);
-	XFillRectangle(dpy, win, gc, x - gap, y, d + 2 * gap,
-	    3 * d + 4 * gap);
-	for (i = 0; i < LIGHT_MAX; i++) {
-		XSetForeground(dpy, gc, i == current ? on[i] : off[i]);
-		XFillArc(dpy, win, gc, x, y + gap + i * (d + gap), d, d,
-		    0, 360 * 64);
-	}
-	XFlush(dpy);
-}
-
-/*
- * Start the VM manager on a left click, follow the size the tray gives
- * us, redraw when needed and dock again if the tray manager is replaced.
- */
-static void
-handle(XEvent *ev)
-{
-	switch (ev->type) {
-	case ButtonPress:
-		if (ev->xbutton.button == Button1)
-			launch();
-		break;
-	case ClientMessage:
-		/* A new tray manager took over: dock again. */
-		if (ev->xclient.message_type == managersel &&
-		    (Atom)ev->xclient.data.l[1] == traysel)
-			dock();
-		break;
-	case ConfigureNotify:
-		if (ev->xconfigure.window == win) {
-			width = ev->xconfigure.width;
-			height = ev->xconfigure.height;
-			draw();
-		}
-		break;
-	case DestroyNotify:
-		if (ev->xdestroywindow.window == manager)
-			manager = None;
-		break;
-	case Expose:
-		if (ev->xexpose.count == 0)
-			draw();
-		break;
-	}
 }
 
 /*
  * Start the VM manager in its own session.  The intermediate child exits
  * at once, so the manager is not ours to wait for and outlives us.
  */
-static void
+void
 launch(void)
 {
 	pid_t pid;
@@ -380,24 +198,10 @@ launch(void)
 		}
 }
 
-/*
- * Allocate a color given by name or as "#rrggbb" and return its pixel,
- * fully opaque when the window has an alpha channel.
- */
-static unsigned long
-pixel(const char *name)
-{
-	XColor exact, screen;
-
-	if (XAllocNamedColor(dpy, cmap, name, &screen, &exact) == 0)
-		errx(1, "cannot allocate color %s", name);
-	return screen.pixel | alpha;
-}
-
 static __dead void
 usage(void)
 {
-	fprintf(stderr, "usage: %s [-c console] [-i interval]\n",
+	fprintf(stderr, "usage: %s [-x] [-c console] [-i interval]\n",
 	    getprogname());
 	exit(1);
 }

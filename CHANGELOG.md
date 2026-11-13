@@ -1,5 +1,24 @@
 # Changelog
 
+## v1.1.0 — 2026-11-13
+
+* **StatusNotifierItem:** when the session bus has a StatusNotifierItem
+  watcher (KDE Plasma and others), vmdtray registers a native item over
+  D-Bus instead of docking an X window.  The tray now shows a **tooltip**
+  with the number of VMs running: through `xembedsniproxy` the XEmbed
+  window had none, since the proxy does not publish the `ToolTip`
+  property.
+* The icon is drawn in memory with antialiasing and offered in 16, 22,
+  32, 48 and 64 pixels, so it is smooth at any panel size.
+* XEmbed is still used on any other X11 tray, or always with the new
+  `-x` flag.
+* The tooltip says "1 of 1 VM running" or "1 of 2 VMs running", and
+  "no VMs configured" when there are none.
+* Split into modules: `icon.c`, `sni.c`, `vmstatus.c` and `xembed.c`.
+* New dependency: libdbus (`dbus` package).
+* Regress suite: tooltip wording and 114 checks of the rendered icon on
+  top of the 18 parser cases.
+
 ## v1.0.0 — 2026-11-13
 
 First release.

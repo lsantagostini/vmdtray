@@ -22,11 +22,12 @@
 .Nd traffic light for vmd virtual machines in the system tray
 .Sh SYNOPSIS
 .Nm vmdtray
+.Op Fl x
 .Op Fl c Ar console
 .Op Fl i Ar interval
 .Sh DESCRIPTION
 .Nm
-docks into the system tray of the X11 desktop and shows the state of the
+docks into the system tray of the desktop and shows the state of the
 .Xr vmd 8
 virtual machines as a traffic light.
 Every
@@ -46,10 +47,16 @@ No virtual machine is running, none is configured, or
 cannot be reached.
 .El
 .Pp
-The window title, which the tray may show as a tooltip, tells how many
-virtual machines are running.
 Clicking the traffic light with the left mouse button starts the virtual
 machine manager in its own session.
+.Pp
+When the session bus has a StatusNotifierItem watcher, as on KDE Plasma,
+.Nm
+registers a StatusNotifierItem over D-Bus.
+The tray then shows a tooltip that tells how many virtual machines are
+running.
+Otherwise it docks an X window through the freedesktop.org system tray
+protocol over XEmbed, and puts that text in the window title.
 .Pp
 The options are as follows:
 .Bl -tag -width Ds
@@ -65,13 +72,18 @@ Check the virtual machines every
 .Ar interval
 seconds, from 1 to 3600.
 The default is 5.
+.It Fl x
+Use the XEmbed system tray protocol even if StatusNotifierItem is
+available.
 .El
-.Pp
-.Nm
-needs a system tray that implements the freedesktop.org system tray
-protocol over XEmbed.
-On desktops whose tray only speaks StatusNotifierItem, such as KDE Plasma,
-the xembedsniproxy daemon bridges the two.
+.Sh ENVIRONMENT
+.Bl -tag -width DBUS_SESSION_BUS_ADDRESS
+.It Ev DBUS_SESSION_BUS_ADDRESS
+The session bus where the StatusNotifierItem watcher is looked for.
+If it is not set, the XEmbed protocol is used.
+.It Ev DISPLAY
+The X server to dock into with the XEmbed protocol.
+.El
 .Sh FILES
 .Bl -tag -width "/usr/local/bin/vmConsola" -compact
 .It Pa /usr/sbin/vmctl
@@ -81,8 +93,8 @@ default virtual machine manager
 .El
 .Sh EXIT STATUS
 .Nm
-runs until it is killed or the X server goes away, and exits >0 if an
-error occurs.
+runs until it is killed or loses its connection to the tray, and exits
+>0 if an error occurs.
 .Sh SEE ALSO
 .Xr vm.conf 5 ,
 .Xr vmctl 8 ,

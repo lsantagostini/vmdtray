@@ -1,7 +1,7 @@
 #	$OpenBSD$
 
-PROG=		t_vmstatus
-SRCS=		t_vmstatus.c vmstatus.c
+PROG=		t_vmdtray
+SRCS=		t_vmdtray.c icon.c vmstatus.c
 NOMAN=		Yes
 WARNINGS=	Yes
 CPPFLAGS+=	-I${.CURDIR}/..
