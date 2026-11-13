@@ -1,0 +1,5 @@
+vmdtray
+*.o
+*.d
+regress/t_vmstatus
+obj/

@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+    tags: [ "v*" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  openbsd:
+    name: Build and regress (OpenBSD 8.0)
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    # The real thing: build with bsd.prog.mk and WARNINGS=Yes, then run
+    # the regress suite (parser tests, style(9) checks, mandoc -Tlint).
+    - name: Build and run the regress suite
+      uses: vmactions/openbsd-vm@v1
+      with:
+        release: "8.0"
+        run: |
+          make
+          make -C regress regress
+
+  portable:
+    name: Parser tests and lint (Ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Install mandoc
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y mandoc
+
+    # vmstatus.c is plain C: it must build cleanly with another compiler
+    # and C library too.
+    - name: Parser tests (gcc -Wall -Wextra -Werror)
+      run: |
+        gcc -Wall -Wextra -Werror -I. -o t_vmstatus \
+            regress/t_vmstatus.c vmstatus.c
+        ./t_vmstatus
+
+    - name: style(9) checks
+      run: sh regress/stylecheck.sh *.[ch] regress/*.c
+
+    # The vmd(8) manuals do not exist on Linux, so only warnings and
+    # errors count here; the OpenBSD job runs the full -Wstyle check.
+    - name: Manual page
+      run: mandoc -Tlint -W warning -I os=OpenBSD vmdtray.1

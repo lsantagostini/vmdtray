@@ -1,0 +1,91 @@
+.\"	$OpenBSD$
+.\"
+.\" Copyright (c) 2026 Leonardo Santagostini <leonardo@santagostini.com.ar>
+.\"
+.\" Permission to use, copy, modify, and distribute this software for any
+.\" purpose with or without fee is hereby granted, provided that the above
+.\" copyright notice and this permission notice appear in all copies.
+.\"
+.\" THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+.\" WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+.\" MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+.\" ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+.\" WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+.\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+.\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+.\"
+.Dd $Mdocdate: November 13 2026 $
+.Dt VMDTRAY 1
+.Os
+.Sh NAME
+.Nm vmdtray
+.Nd traffic light for vmd virtual machines in the system tray
+.Sh SYNOPSIS
+.Nm vmdtray
+.Op Fl c Ar console
+.Op Fl i Ar interval
+.Sh DESCRIPTION
+.Nm
+docks into the system tray of the X11 desktop and shows the state of the
+.Xr vmd 8
+virtual machines as a traffic light.
+Every
+.Ar interval
+seconds it runs
+.Dq Nm vmctl Cm status
+and lights one lamp:
+.Bl -tag -width "yellow"
+.It green
+Every virtual machine is running.
+.It yellow
+Some virtual machines are running and others are not, or one is stopping,
+paused or waiting.
+.It red
+No virtual machine is running, none is configured, or
+.Xr vmd 8
+cannot be reached.
+.El
+.Pp
+The window title, which the tray may show as a tooltip, tells how many
+virtual machines are running.
+Clicking the traffic light with the left mouse button starts the virtual
+machine manager in its own session.
+.Pp
+The options are as follows:
+.Bl -tag -width Ds
+.It Fl c Ar console
+Run
+.Ar console
+when the traffic light is clicked.
+It must be an absolute path.
+The default is
+.Pa /usr/local/bin/vmConsola .
+.It Fl i Ar interval
+Check the virtual machines every
+.Ar interval
+seconds, from 1 to 3600.
+The default is 5.
+.El
+.Pp
+.Nm
+needs a system tray that implements the freedesktop.org system tray
+protocol over XEmbed.
+On desktops whose tray only speaks StatusNotifierItem, such as KDE Plasma,
+the xembedsniproxy daemon bridges the two.
+.Sh FILES
+.Bl -tag -width "/usr/local/bin/vmConsola" -compact
+.It Pa /usr/sbin/vmctl
+queried for the state of the virtual machines
+.It Pa /usr/local/bin/vmConsola
+default virtual machine manager
+.El
+.Sh EXIT STATUS
+.Nm
+runs until it is killed or the X server goes away, and exits >0 if an
+error occurs.
+.Sh SEE ALSO
+.Xr vm.conf 5 ,
+.Xr vmctl 8 ,
+.Xr vmd 8
+.Sh AUTHORS
+.An Leonardo Santagostini Aq Mt leonardo@santagostini.com.ar
